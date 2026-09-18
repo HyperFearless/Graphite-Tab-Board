@@ -9,37 +9,47 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div class="brand-block">
-          <div class="brand-mark" aria-hidden="true">◆</div>
-          <div>
-            <p class="eyebrow">SEKME PANOSU</p>
-            <h1>Graphite</h1>
+        <div class="topbar-row topbar-main">
+          <div class="brand-block">
+            <div class="brand-mark" aria-hidden="true">◆</div>
+            <div class="brand-text">
+              <p class="eyebrow">SEKME PANOSU</p>
+              <h1>Graphite</h1>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="theme-button" class="icon-button" type="button" title="Temayı değiştir" aria-label="Temayı değiştir" aria-pressed="false">◐</button>
+            <button id="density-button" class="icon-button" type="button" title="Yoğun görünüm" aria-label="Yoğun görünüm" aria-pressed="false">▤</button>
+            <button id="refresh-button" class="icon-button" type="button" title="Panoyu yenile" aria-label="Panoyu yenile">↻</button>
           </div>
         </div>
-        <nav class="filter-group" aria-label="Sekme filtresi">
-          <button class="filter-button active" data-filter="all" type="button" aria-pressed="true">Tümü</button>
-          <button class="filter-button" data-filter="active" type="button" aria-pressed="false">Aktif</button>
-          <button class="filter-button" data-filter="sleeping" type="button" aria-pressed="false">Uykuda</button>
-        </nav>
+        <div class="topbar-row topbar-sub">
+          <div class="sub-right">
+            <section class="summary" aria-label="Tab summary">
+              <div><strong id="tab-count">0</strong><span>sekme</span></div>
+              <div><strong id="sleeping-count">0</strong><span>uykuda</span></div>
+              <div><strong id="favorite-count">0</strong><span>favori</span></div>
+            </section>
+            <p id="status-line" role="status">Panon yükleniyor…</p>
+          </div>
+        </div>
+      </header>
+      <div class="search-dock">
         <div class="search-box" role="search" aria-label="Sekmelerde ara">
-          <input id="tab-search" type="search" placeholder="Sekmelerde ara" aria-label="Sekmelerde ara" aria-controls="tab-grid" autocomplete="off" spellcheck="false">
+          <input id="tab-search" type="search" placeholder="Sekmelerde ara" aria-label="Sekmelerde ara" aria-controls="tab-grid" aria-keyshortcuts="/" autocomplete="off" spellcheck="false">
+          <kbd id="search-kbd" aria-hidden="true" title="Kısayol: /">/</kbd>
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
             <circle cx="10.5" cy="10.5" r="6.5"></circle>
             <path d="m16 16 5 5"></path>
           </svg>
           <button id="clear-search" type="button" aria-label="Aramayı temizle" title="Aramayı temizle" hidden>×</button>
         </div>
-        <div class="header-actions">
-      <section class="summary" aria-label="Tab summary">
-        <div><strong id="tab-count">0</strong><span>sekme</span></div>
-        <div><strong id="sleeping-count">0</strong><span>uykuda</span></div>
-        <div><strong id="favorite-count">0</strong><span>favori</span></div>
-      </section>
-          <button id="refresh-button" class="icon-button" type="button" title="Panoyu yenile" aria-label="Panoyu yenile">↻</button>
-        </div>
-      </header>
-
-        <p id="status-line" role="status">Panon yükleniyor…</p>
+          <nav class="filter-group" aria-label="Sekme filtresi">
+            <button class="filter-button active" data-filter="all" type="button" aria-pressed="true" title="Tümü (1)" aria-keyshortcuts="1">Tümü <span class="kbd" aria-hidden="true">1</span></button>
+            <button class="filter-button" data-filter="active" type="button" aria-pressed="false" title="Aktif (2)" aria-keyshortcuts="2">Aktif <span class="kbd" aria-hidden="true">2</span></button>
+            <button class="filter-button" data-filter="sleeping" type="button" aria-pressed="false" title="Uykuda (3)" aria-keyshortcuts="3">Uykuda <span class="kbd" aria-hidden="true">3</span></button>
+          </nav>
+      </div>
 
       <section id="tab-grid" class="tab-grid" aria-live="polite"></section>
       <section id="empty-state" class="empty-state" hidden>

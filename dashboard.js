@@ -8,6 +8,26 @@
   const clearSearchButton = document.querySelector("#clear-search");
   let currentState = { records: [], focusedWindowId: null };
   let activeFilter = "all";
+  const DENSITY_KEY = "gtb-density";
+  const THEME_KEY = "gtb-theme";
+
+  function applyDensity(compact) {
+    document.body.classList.toggle("compact", compact);
+    const button = document.querySelector("#density-button");
+    if (button) button.setAttribute("aria-pressed", String(compact));
+    try { localStorage.setItem(DENSITY_KEY, compact ? "compact" : "comfortable"); } catch {}
+  }
+
+  try {
+    if (localStorage.getItem(DENSITY_KEY) === "compact") {
+      document.body.classList.add("compact");
+      document.querySelector("#density-button")?.setAttribute("aria-pressed", "true");
+    }
+    if (localStorage.getItem(THEME_KEY) === "ice") {
+      document.body.dataset.theme = "ice";
+      document.querySelector("#theme-button")?.setAttribute("aria-pressed", "true");
+    }
+  } catch {}
 
   function invoke(namespace, method, ...args) {
     const fn = api[namespace]?.[method];
@@ -40,6 +60,8 @@
     const allRecords = currentState.records || [];
     const query = normalizeSearch(searchInput.value.trim());
     clearSearchButton.hidden = searchInput.value.length === 0;
+    const searchKbd = document.querySelector("#search-kbd");
+    if (searchKbd) searchKbd.hidden = searchInput.value.length !== 0;
     const records = allRecords.filter((record) => {
       const sleeping = isSleeping(record);
       if (activeFilter !== "all" && (activeFilter === "sleeping" ? !sleeping : sleeping)) return false;
@@ -152,6 +174,16 @@
     }
   });
   document.querySelector("#refresh-button").addEventListener("click", load);
+  document.querySelector("#density-button")?.addEventListener("click", () => {
+    applyDensity(!document.body.classList.contains("compact"));
+  });
+  document.querySelector("#theme-button")?.addEventListener("click", () => {
+    const ice = document.body.dataset.theme !== "ice";
+    if (ice) document.body.dataset.theme = "ice";
+    else delete document.body.dataset.theme;
+    document.querySelector("#theme-button")?.setAttribute("aria-pressed", String(ice));
+    try { localStorage.setItem(THEME_KEY, ice ? "ice" : "graphite"); } catch {}
+  });
   searchInput.addEventListener("input", render);
   function clearSearch() {
     searchInput.value = "";
@@ -167,14 +199,28 @@
   });
   document.querySelectorAll(".filter-button").forEach((button) => {
     button.addEventListener("click", () => {
-      activeFilter = button.dataset.filter;
-      document.querySelectorAll(".filter-button").forEach((item) => {
-        const selected = item === button;
-        item.classList.toggle("active", selected);
-        item.setAttribute("aria-pressed", String(selected));
-      });
-      render();
+      setFilter(button.dataset.filter);
     });
+  });
+
+  function setFilter(name) {
+    activeFilter = name;
+    document.querySelectorAll(".filter-button").forEach((item) => {
+      const selected = item.dataset.filter === name;
+      item.classList.toggle("active", selected);
+      item.setAttribute("aria-pressed", String(selected));
+    });
+    render();
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.target === searchInput || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "/") {
+      event.preventDefault();
+      searchInput.focus();
+    } else if (event.key === "1") setFilter("all");
+    else if (event.key === "2") setFilter("active");
+    else if (event.key === "3") setFilter("sleeping");
   });
   api.runtime.onMessage.addListener((message) => {
     if (message?.type === "STATE_UPDATED") load();
