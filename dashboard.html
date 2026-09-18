@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Graphite Sekme Panosu</title>
+    <link rel="stylesheet" href="dashboard.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">◆</div>
+          <div>
+            <p class="eyebrow">SEKME PANOSU</p>
+            <h1>Graphite</h1>
+          </div>
+        </div>
+        <nav class="filter-group" aria-label="Sekme filtresi">
+          <button class="filter-button active" data-filter="all" type="button" aria-pressed="true">Tümü</button>
+          <button class="filter-button" data-filter="active" type="button" aria-pressed="false">Aktif</button>
+          <button class="filter-button" data-filter="sleeping" type="button" aria-pressed="false">Uykuda</button>
+        </nav>
+        <div class="search-box" role="search" aria-label="Sekmelerde ara">
+          <input id="tab-search" type="search" placeholder="Sekmelerde ara" aria-label="Sekmelerde ara" aria-controls="tab-grid" autocomplete="off" spellcheck="false">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
+            <circle cx="10.5" cy="10.5" r="6.5"></circle>
+            <path d="m16 16 5 5"></path>
+          </svg>
+          <button id="clear-search" type="button" aria-label="Aramayı temizle" title="Aramayı temizle" hidden>×</button>
+        </div>
+        <div class="header-actions">
+      <section class="summary" aria-label="Tab summary">
+        <div><strong id="tab-count">0</strong><span>sekme</span></div>
+        <div><strong id="sleeping-count">0</strong><span>uykuda</span></div>
+        <div><strong id="favorite-count">0</strong><span>favori</span></div>
+      </section>
+          <button id="refresh-button" class="icon-button" type="button" title="Panoyu yenile" aria-label="Panoyu yenile">↻</button>
+        </div>
+      </header>
+
+        <p id="status-line" role="status">Panon yükleniyor…</p>
+
+      <section id="tab-grid" class="tab-grid" aria-live="polite"></section>
+      <section id="empty-state" class="empty-state" hidden>
+        <div class="empty-orb">◌</div>
+        <h2>Panoda sekme yok</h2>
+        <p>Bir sayfa açtığınızda otomatik olarak burada görünür.</p>
+      </section>
+
+      <footer class="footer-note">
+        <span>Normal sekmeler yerel olarak kaydedilir.</span>
+        <span>Onayınız olmadan hiçbir sekme kapanmaz.</span>
+      </footer>
+    </main>
+    <template id="tab-card-template">
+      <article class="tab-card">
+        <div class="card-image-wrap">
+          <img class="card-image" alt="" loading="lazy">
+          <div class="image-fallback" aria-hidden="true"></div>
+          <div class="status-stack" aria-label="Sekme durumu">
+            <span class="tab-status"></span>
+            <span class="tab-badge selected-badge" hidden>SEÇİLİ</span>
+            <span class="tab-badge audible-badge" hidden>SES</span>
+            <span class="tab-badge pinned-badge" hidden>SABİT</span>
+          </div>
+          <button class="favorite-button" data-action="favorite" type="button" aria-label="Favoriyi değiştir">☆</button>
+        </div>
+        <div class="card-body">
+          <p class="card-domain"></p>
+          <h2 class="card-title"></h2>
+          <p class="card-url"></p>
+          <div class="card-actions">
+            <button data-action="discard" type="button">Uyut</button>
+            <button data-action="reload" type="button">Yenile</button>
+            <button data-action="pin" type="button">Sabitle</button>
+            <button class="danger" data-action="close" type="button">Kapat</button>
+          </div>
+        </div>
+      </article>
+    </template>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

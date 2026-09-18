@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Graphite Tab Board",
+  "version": "1.0.0",
+  "description": "A dark, persistent tab dashboard for Firefox Desktop.",
+  "incognito": "not_allowed",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "Open Graphite Tab Board"
+  },
+  "chrome_url_overrides": {
+    "newtab": "dashboard.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["metadata.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "graphite-tab-board@example.invalid",
+      "strict_min_version": "109.0"
+    }
+  }
+}
