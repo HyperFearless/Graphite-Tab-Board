@@ -8,8 +8,125 @@
   const clearSearchButton = document.querySelector("#clear-search");
   let currentState = { records: [], focusedWindowId: null };
   let activeFilter = "all";
+  const cardById = new Map();
   const DENSITY_KEY = "gtb-density";
   const THEME_KEY = "gtb-theme";
+  const LANG_KEY = "gtb-lang";
+  const I18N = {
+    tr: {
+      title: "Graphite Sekme Panosu",
+      eyebrow: "SEKME PANOSU",
+      filterAll: "Tümü", filterActive: "Aktif", filterSleeping: "Uykuda",
+      filterNavAria: "Sekme filtresi",
+      searchAria: "Sekmelerde ara", searchPh: "Sekmelerde ara",
+      clearSearch: "Aramayı temizle", searchKbdTitle: "Kısayol: /",
+      summaryAria: "Sekme özeti", sumTabs: "sekme", sumSleeping: "uykuda", sumFav: "favori",
+      loading: "Panon yükleniyor…",
+      status: (a, b) => `${a} sekmeden ${b} gösteriliyor.`,
+      emptySearchT: "Aramanızla eşleşen sekme yok",
+      emptySearchD: "Başka bir harf/kelime deneyin veya aramayı temizleyin.",
+      emptyAllT: "Panoda sekme yok",
+      emptyAllD: "Bir sayfa açtığınızda otomatik olarak burada görünür.",
+      emptyFilterT: "Bu filtrede sekme yok",
+      emptyFilterD: "Diğer sekmeleri görmek için Tümü filtresini seçin.",
+      badgeActive: "AKTİF", badgeSleeping: "UYKUDA",
+      badgeSelected: "SEÇİLİ", badgeAudible: "SES", badgePinned: "SABİT",
+      untitled: "Adsız sekme", previewAlt: "Sekme önizlemesi", localPage: "yerel sayfa",
+      favAdd: "Favoriye ekle", favRemove: "Favoriden çıkar",
+      wake: "Uyandır", sleep: "Uyut", wakeTitle: "Sekmeyi uyandır", sleepTitle: "Sekmeyi uyut",
+      unpin: "Kaldır", pin: "Sabitle", unpinTitle: "Sabitlemeyi kaldır", pinTitle: "Sekmeyi sabitle",
+      thisTab: "bu sekme",
+      closeConfirm: (title) => `“${title}” kapatılsın mı? Bu işlem sekmeyi panodan kaldırır.`,
+      actionFailed: "İşlem tamamlanamadı.",
+      loadFailed: (msg) => `Sekmeler yüklenemedi: ${msg}`,
+      unknownError: "bilinmeyen hata",
+      footerA: "Normal sekmeler yerel olarak kaydedilir.",
+      footerB: "Onayınız olmadan hiçbir sekme kapanmaz.",
+      themeTitle: "Temayı değiştir", densityTitle: "Yoğun görünüm", refreshTitle: "Panoyu yenile",
+      langTitle: "English'e geç", langLabel: "EN", statusStackAria: "Sekme durumu"
+    },
+    en: {
+      title: "Graphite Tab Board",
+      eyebrow: "TAB BOARD",
+      filterAll: "All", filterActive: "Active", filterSleeping: "Sleeping",
+      filterNavAria: "Tab filter",
+      searchAria: "Search tabs", searchPh: "Search tabs",
+      clearSearch: "Clear search", searchKbdTitle: "Shortcut: /",
+      summaryAria: "Tab summary", sumTabs: "tabs", sumSleeping: "sleeping", sumFav: "favorites",
+      loading: "Loading board…",
+      status: (a, b) => `Showing ${b} of ${a} tabs.`,
+      emptySearchT: "No tabs match your search",
+      emptySearchD: "Try another word or clear the search.",
+      emptyAllT: "No tabs on the board",
+      emptyAllD: "Open a page and it will appear here automatically.",
+      emptyFilterT: "No tabs in this filter",
+      emptyFilterD: "Select the All filter to see other tabs.",
+      badgeActive: "ACTIVE", badgeSleeping: "SLEEPING",
+      badgeSelected: "SELECTED", badgeAudible: "AUDIO", badgePinned: "PINNED",
+      untitled: "Untitled tab", previewAlt: "Tab preview", localPage: "local page",
+      favAdd: "Add to favorites", favRemove: "Remove from favorites",
+      wake: "Wake", sleep: "Sleep", wakeTitle: "Wake tab", sleepTitle: "Sleep tab",
+      unpin: "Unpin", pin: "Pin", unpinTitle: "Unpin tab", pinTitle: "Pin tab",
+      thisTab: "this tab",
+      closeConfirm: (title) => `Close “${title}”? This removes the tab from the board.`,
+      actionFailed: "Action could not be completed.",
+      loadFailed: (msg) => `Tabs could not be loaded: ${msg}`,
+      unknownError: "unknown error",
+      footerA: "Normal tabs are stored locally.",
+      footerB: "No tab closes without your confirmation.",
+      themeTitle: "Change theme", densityTitle: "Dense view", refreshTitle: "Refresh board",
+      langTitle: "Türkçe'ye geç", langLabel: "TR", statusStackAria: "Tab status"
+    }
+  };
+  let lang = "tr";
+  try {
+    if (localStorage.getItem(LANG_KEY) === "en") lang = "en";
+  } catch {}
+  function t(key) { return I18N[lang][key]; }
+
+  function applyLang(next) {
+    lang = next;
+    try { localStorage.setItem(LANG_KEY, lang); } catch {}
+    document.documentElement.lang = lang;
+    document.title = t("title");
+    document.querySelectorAll("[data-i18n]").forEach((node) => {
+      const key = node.dataset.i18n;
+      if (typeof I18N[lang][key] === "string") node.textContent = I18N[lang][key];
+    });
+    const searchBox = document.querySelector(".search-box");
+    if (searchBox) searchBox.setAttribute("aria-label", t("searchAria"));
+    searchInput.setAttribute("aria-label", t("searchAria"));
+    searchInput.placeholder = t("searchPh");
+    const searchKbd = document.querySelector("#search-kbd");
+    if (searchKbd) searchKbd.title = t("searchKbdTitle");
+    clearSearchButton.setAttribute("aria-label", t("clearSearch"));
+    clearSearchButton.title = t("clearSearch");
+    document.querySelector(".filter-group")?.setAttribute("aria-label", t("filterNavAria"));
+    document.querySelectorAll(".filter-button").forEach((button) => {
+      const map = { all: t("filterAll"), active: t("filterActive"), sleeping: t("filterSleeping") };
+      const num = { all: "1", active: "2", sleeping: "3" }[button.dataset.filter];
+      button.title = `${map[button.dataset.filter]} (${num})`;
+    });
+    document.querySelector(".summary")?.setAttribute("aria-label", t("summaryAria"));
+    const themeButton = document.querySelector("#theme-button");
+    if (themeButton) { themeButton.title = t("themeTitle"); themeButton.setAttribute("aria-label", t("themeTitle")); }
+    const densityButton = document.querySelector("#density-button");
+    if (densityButton) { densityButton.title = t("densityTitle"); densityButton.setAttribute("aria-label", t("densityTitle")); }
+    const refreshButton = document.querySelector("#refresh-button");
+    if (refreshButton) { refreshButton.title = t("refreshTitle"); refreshButton.setAttribute("aria-label", t("refreshTitle")); }
+    const langButton = document.querySelector("#lang-button");
+    if (langButton) {
+      langButton.textContent = t("langLabel");
+      langButton.title = t("langTitle");
+      langButton.setAttribute("aria-label", t("langTitle"));
+    }
+    template.content.querySelector(".selected-badge").textContent = t("badgeSelected");
+    template.content.querySelector(".audible-badge").textContent = t("badgeAudible");
+    template.content.querySelector(".pinned-badge").textContent = t("badgePinned");
+    template.content.querySelector(".status-stack")?.setAttribute("aria-label", t("statusStackAria"));
+    template.content.querySelector(".favorite-button")?.setAttribute("aria-label", t("favAdd"));
+    render();
+  }
 
   function applyDensity(compact) {
     document.body.classList.toggle("compact", compact);
@@ -41,7 +158,7 @@
   function escapeText(value) { return String(value || ""); }
 
   function hostFor(url) {
-    try { return new URL(url).hostname.replace(/^www\./, "") || "yerel sayfa"; } catch { return "yerel sayfa"; }
+    try { return new URL(url).hostname.replace(/^www\./, "") || t("localPage"); } catch { return t("localPage"); }
   }
 
   function imageFor(record) {
@@ -55,6 +172,63 @@
     return Boolean(record.discarded || !Number.isInteger(record.tabId));
   }
 
+
+  function buildCard(record) {
+    const card = template.content.firstElementChild.cloneNode(true);
+    card.dataset.id = record.id;
+    const image = card.querySelector(".card-image");
+    image.addEventListener("error", () => {
+      const next = (card._fallbacks || []).shift();
+      if (next) {
+        card._src = next;
+        image.src = next;
+      } else {
+        card._src = "";
+        image.removeAttribute("src");
+      }
+    });
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button[data-action]")) return;
+      actionFor(card, "focus");
+    });
+    syncCard(card, record);
+    return card;
+  }
+
+  function syncCard(card, record) {
+    card.querySelector(".card-domain").textContent = hostFor(record.url);
+    card.querySelector(".card-title").textContent = escapeText(record.title || record.url || t("untitled"));
+    card.querySelector(".card-url").textContent = escapeText(record.url);
+    const image = card.querySelector(".card-image");
+    const imageUrl = imageFor(record);
+    if (imageUrl !== card._src) {
+      card._src = imageUrl;
+      card._fallbacks = [record.cachedImageUrl, record.favIconUrl].filter((url) => url && url !== imageUrl);
+      if (imageUrl) image.src = imageUrl;
+      else image.removeAttribute("src");
+    }
+    image.alt = record.title || t("previewAlt");
+    const sleeping = isSleeping(record);
+    card.classList.toggle("sleeping", sleeping);
+    const status = card.querySelector(".tab-status");
+    status.textContent = sleeping ? t("badgeSleeping") : t("badgeActive");
+    status.classList.toggle("sleeping", sleeping);
+    card.querySelector(".selected-badge").hidden = sleeping || !record.active;
+    card.querySelector(".audible-badge").hidden = !record.audible;
+    card.querySelector(".pinned-badge").hidden = !record.pinned;
+    const favorite = card.querySelector(".favorite-button");
+    favorite.textContent = record.favorite ? "★" : "☆";
+    favorite.classList.toggle("active", Boolean(record.favorite));
+    favorite.setAttribute("aria-label", record.favorite ? t("favRemove") : t("favAdd"));
+    const discard = card.querySelector('[data-action="discard"]');
+    discard.textContent = sleeping ? t("wake") : t("sleep");
+    discard.title = sleeping ? t("wakeTitle") : t("sleepTitle");
+    discard.disabled = false;
+    const pin = card.querySelector('[data-action="pin"]');
+    pin.textContent = record.pinned ? t("unpin") : t("pin");
+    pin.title = record.pinned ? t("unpinTitle") : t("pinTitle");
+    pin.classList.toggle("pinned", Boolean(record.pinned));
+  }
 
   function render() {
     const allRecords = currentState.records || [];
@@ -76,64 +250,35 @@
       }
       return (b.lastSeen || 0) - (a.lastSeen || 0);
     });
-    grid.replaceChildren();
     empty.hidden = records.length !== 0;
     document.querySelector("#tab-count").textContent = allRecords.length;
     document.querySelector("#sleeping-count").textContent = allRecords.filter(isSleeping).length;
     document.querySelector("#favorite-count").textContent = allRecords.filter((record) => record.favorite).length;
-    statusLine.textContent = `${allRecords.length} sekmeden ${records.length} gösteriliyor.`;
+    statusLine.textContent = t("status")(allRecords.length, records.length);
     empty.querySelector("h2").textContent = query
-      ? "Aramanızla eşleşen sekme yok"
-      : activeFilter === "all" ? "Panoda sekme yok" : "Bu filtrede sekme yok";
+      ? t("emptySearchT")
+      : activeFilter === "all" ? t("emptyAllT") : t("emptyFilterT");
     empty.querySelector("p").textContent = query
-      ? "Başka bir harf/kelime deneyin veya aramayı temizleyin."
-      : activeFilter === "all" ? "Bir sayfa açtığınızda otomatik olarak burada görünür." : "Diğer sekmeleri görmek için Tümü filtresini seçin.";
+      ? t("emptySearchD")
+      : activeFilter === "all" ? t("emptyAllD") : t("emptyFilterD");
 
-    for (const record of records) {
-      const card = template.content.firstElementChild.cloneNode(true);
-      card.dataset.id = record.id;
-      card.querySelector(".card-domain").textContent = hostFor(record.url);
-      card.querySelector(".card-title").textContent = escapeText(record.title || record.url || "Adsız sekme");
-      card.querySelector(".card-url").textContent = escapeText(record.url);
-      const image = card.querySelector(".card-image");
-      const imageUrl = imageFor(record);
-      if (imageUrl) {
-        image.src = imageUrl;
-        image.alt = record.title || "Sekme önizlemesi";
-        const fallbackUrls = [record.cachedImageUrl, record.favIconUrl].filter((url) => url && url !== imageUrl);
-        image.addEventListener("error", () => {
-          const next = fallbackUrls.shift();
-          if (next) image.src = next;
-          else image.removeAttribute("src");
-        });
+    // Keyed render: reuse card nodes by record id. Only added/removed cards
+    // touch the DOM; order changes are cheap append-moves, not rebuilds.
+    const visibleIds = new Set(records.map((record) => record.id));
+    for (const [id, element] of cardById) {
+      if (!visibleIds.has(id)) {
+        element.remove();
+        cardById.delete(id);
       }
-      const sleeping = isSleeping(record);
-      card.classList.toggle("sleeping", sleeping);
-      const status = card.querySelector(".tab-status");
-      status.textContent = sleeping ? "UYKUDA" : "AKTİF";
-      status.classList.toggle("sleeping", sleeping);
-      const selected = card.querySelector(".selected-badge");
-      selected.hidden = sleeping || !record.active;
-      const audible = card.querySelector(".audible-badge");
-      audible.hidden = !record.audible;
-      const pinned = card.querySelector(".pinned-badge");
-      pinned.hidden = !record.pinned;
-      const favorite = card.querySelector(".favorite-button");
-      favorite.textContent = record.favorite ? "★" : "☆";
-      favorite.classList.toggle("active", Boolean(record.favorite));
-      favorite.setAttribute("aria-label", record.favorite ? "Favoriden çıkar" : "Favoriye ekle");
-      const discard = card.querySelector('[data-action="discard"]');
-      discard.textContent = sleeping ? "Uyandır" : "Uyut";
-      discard.title = sleeping ? "Sekmeyi uyandır" : "Sekmeyi uyut";
-      discard.disabled = false;
-      const pin = card.querySelector('[data-action="pin"]');
-      pin.textContent = record.pinned ? "Kaldır" : "Sabitle";
-      pin.title = record.pinned ? "Sabitlemeyi kaldır" : "Sekmeyi sabitle";
-      pin.classList.toggle("pinned", Boolean(record.pinned));
-      card.addEventListener("click", (event) => {
-        if (event.target.closest("button[data-action]")) return;
-        actionFor(card, "focus");
-      });
+    }
+    for (const record of records) {
+      let card = cardById.get(record.id);
+      if (!card) {
+        card = buildCard(record);
+        cardById.set(record.id, card);
+      } else {
+        syncCard(card, record);
+      }
       grid.append(card);
     }
   }
@@ -143,7 +288,7 @@
       currentState = await invoke("runtime", "sendMessage", { type: "GET_STATE" });
       render();
     } catch (error) {
-      statusLine.textContent = `Sekmeler yüklenemedi: ${error.message || "bilinmeyen hata"}`;
+      statusLine.textContent = t("loadFailed")(error.message || t("unknownError"));
     }
   }
 
@@ -151,18 +296,18 @@
     const id = card.dataset.id;
     if (action === "close") {
       const record = currentState.records.find((item) => item.id === id);
-      const title = record?.title || record?.url || "bu sekme";
-      if (!globalThis.confirm(`“${title}” kapatılsın mı? Bu işlem sekmeyi panodan kaldırır.`)) return;
+      const title = record?.title || record?.url || t("thisTab");
+      if (!globalThis.confirm(t("closeConfirm")(title))) return;
     }
     try {
       const result = await invoke("runtime", "sendMessage", { type: "TAB_ACTION", action, id });
       if (!result?.ok) {
-        statusLine.textContent = result?.error || "İşlem tamamlanamadı.";
+        statusLine.textContent = result?.error || t("actionFailed");
         return;
       }
       await load();
     } catch (error) {
-      statusLine.textContent = error.message || "İşlem tamamlanamadı.";
+      statusLine.textContent = error.message || t("actionFailed");
     }
   }
 
@@ -222,8 +367,13 @@
     else if (event.key === "2") setFilter("active");
     else if (event.key === "3") setFilter("sleeping");
   });
+  document.querySelector("#lang-button")?.addEventListener("click", () => {
+    applyLang(lang === "tr" ? "en" : "tr");
+  });
   api.runtime.onMessage.addListener((message) => {
     if (message?.type === "STATE_UPDATED") load();
   });
+  statusLine.textContent = t("loading");
+  applyLang(lang);
   load();
 })();

@@ -1,2 +1,5 @@
 # Docs GitHub senkronu dışında
 *.md
+# Derleme çıktıları
+dist/
+*.zip

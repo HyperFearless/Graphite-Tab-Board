@@ -11,9 +11,10 @@
       <header class="topbar">
         <div class="topbar-row topbar-main">
           <div class="brand-block">
+            <button id="lang-button" class="lang-button" type="button" title="English'e geç" aria-label="English'e geç">EN</button>
             <div class="brand-mark" aria-hidden="true">◆</div>
             <div class="brand-text">
-              <p class="eyebrow">SEKME PANOSU</p>
+              <p class="eyebrow" data-i18n="eyebrow">SEKME PANOSU</p>
               <h1>Graphite</h1>
             </div>
           </div>
@@ -26,9 +27,9 @@
         <div class="topbar-row topbar-sub">
           <div class="sub-right">
             <section class="summary" aria-label="Tab summary">
-              <div><strong id="tab-count">0</strong><span>sekme</span></div>
-              <div><strong id="sleeping-count">0</strong><span>uykuda</span></div>
-              <div><strong id="favorite-count">0</strong><span>favori</span></div>
+              <div><strong id="tab-count">0</strong><span data-i18n="sumTabs">sekme</span></div>
+              <div><strong id="sleeping-count">0</strong><span data-i18n="sumSleeping">uykuda</span></div>
+              <div><strong id="favorite-count">0</strong><span data-i18n="sumFav">favori</span></div>
             </section>
             <p id="status-line" role="status">Panon yükleniyor…</p>
           </div>
@@ -45,9 +46,9 @@
           <button id="clear-search" type="button" aria-label="Aramayı temizle" title="Aramayı temizle" hidden>×</button>
         </div>
           <nav class="filter-group" aria-label="Sekme filtresi">
-            <button class="filter-button active" data-filter="all" type="button" aria-pressed="true" title="Tümü (1)" aria-keyshortcuts="1">Tümü <span class="kbd" aria-hidden="true">1</span></button>
-            <button class="filter-button" data-filter="active" type="button" aria-pressed="false" title="Aktif (2)" aria-keyshortcuts="2">Aktif <span class="kbd" aria-hidden="true">2</span></button>
-            <button class="filter-button" data-filter="sleeping" type="button" aria-pressed="false" title="Uykuda (3)" aria-keyshortcuts="3">Uykuda <span class="kbd" aria-hidden="true">3</span></button>
+            <button class="filter-button active" data-filter="all" type="button" aria-pressed="true" title="Tümü (1)" aria-keyshortcuts="1"><span data-i18n="filterAll">Tümü</span> <span class="kbd" aria-hidden="true">1</span></button>
+            <button class="filter-button" data-filter="active" type="button" aria-pressed="false" title="Aktif (2)" aria-keyshortcuts="2"><span data-i18n="filterActive">Aktif</span> <span class="kbd" aria-hidden="true">2</span></button>
+            <button class="filter-button" data-filter="sleeping" type="button" aria-pressed="false" title="Uykuda (3)" aria-keyshortcuts="3"><span data-i18n="filterSleeping">Uykuda</span> <span class="kbd" aria-hidden="true">3</span></button>
           </nav>
       </div>
 
@@ -59,8 +60,8 @@
       </section>
 
       <footer class="footer-note">
-        <span>Normal sekmeler yerel olarak kaydedilir.</span>
-        <span>Onayınız olmadan hiçbir sekme kapanmaz.</span>
+        <span data-i18n="footerA">Normal sekmeler yerel olarak kaydedilir.</span>
+        <span data-i18n="footerB">Onayınız olmadan hiçbir sekme kapanmaz.</span>
       </footer>
     </main>
     <template id="tab-card-template">
