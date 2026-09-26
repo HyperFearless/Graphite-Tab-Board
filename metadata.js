@@ -30,6 +30,13 @@
     return "";
   }
 
+  function favIcon() {
+    const node = document.querySelector('link[rel="icon"][href]') ||
+      document.querySelector('link[rel="shortcut icon"][href]') ||
+      document.querySelector('link[rel="apple-touch-icon"][href]');
+    return absoluteUrl(node?.getAttribute("href")?.trim() || "/favicon.ico");
+  }
+
   function extract() {
     const youtubeId = youtubeVideoId();
     // YouTube thumbnails are stable, CDN-hosted and more useful than the
@@ -39,7 +46,7 @@
       : absoluteUrl(meta('meta[property="og:image"]', 'meta[name="twitter:image"]', 'meta[property="twitter:image"]', 'meta[name="twitter:image:src"]'));
     const title = document.title?.trim() || meta('meta[property="og:title"]', 'meta[name="twitter:title"]') || location.href;
     const description = meta('meta[property="og:description"]', 'meta[name="description"]', 'meta[name="twitter:description"]');
-    return { title, description, imageUrl, url: location.href };
+    return { title, description, imageUrl, favIconUrl: favIcon(), url: location.href };
   }
 
   function send() {

@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Graphite Sekme Panosu</title>
     <link rel="stylesheet" href="dashboard.css">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
         <div class="topbar-row topbar-main">
           <div class="brand-block">
-            <button id="lang-button" class="lang-button" type="button" title="English'e geç" aria-label="English'e geç">EN</button>
             <div class="brand-mark" aria-hidden="true">◆</div>
             <div class="brand-text">
               <p class="eyebrow" data-i18n="eyebrow">SEKME PANOSU</p>
@@ -19,6 +20,7 @@
             </div>
           </div>
           <div class="header-actions">
+            <button id="lang-button" class="lang-button" type="button" title="English'e geç" aria-label="English'e geç">EN</button>
             <button id="theme-button" class="icon-button" type="button" title="Temayı değiştir" aria-label="Temayı değiştir" aria-pressed="false">◐</button>
             <button id="density-button" class="icon-button" type="button" title="Yoğun görünüm" aria-label="Yoğun görünüm" aria-pressed="false">▤</button>
             <button id="refresh-button" class="icon-button" type="button" title="Panoyu yenile" aria-label="Panoyu yenile">↻</button>
@@ -78,7 +80,10 @@
           <button class="favorite-button" data-action="favorite" type="button" aria-label="Favoriyi değiştir">☆</button>
         </div>
         <div class="card-body">
-          <p class="card-domain"></p>
+          <div class="card-domain-row">
+            <img class="card-favicon" alt="" loading="lazy">
+            <p class="card-domain"></p>
+          </div>
           <h2 class="card-title"></h2>
           <p class="card-url"></p>
           <div class="card-actions">
