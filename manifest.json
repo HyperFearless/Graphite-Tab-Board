@@ -38,7 +38,11 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "strict_min_version": "109.0"
+      "id": "graphite-tab-board@hyperfearless",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }

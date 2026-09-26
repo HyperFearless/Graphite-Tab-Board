@@ -1,5 +1,7 @@
 # Docs GitHub senkronu dışında
 *.md
+!README.md
+!README.tr.md
 # Derleme çıktıları
 dist/
 *.zip

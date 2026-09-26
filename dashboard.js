@@ -142,8 +142,8 @@
       document.body.classList.add("compact");
       document.querySelector("#density-button")?.setAttribute("aria-pressed", "true");
     }
-    if (localStorage.getItem(THEME_KEY) === "ice") {
-      document.body.dataset.theme = "ice";
+    if (localStorage.getItem(THEME_KEY) === "graphite") {
+      document.body.dataset.theme = "graphite";
       document.querySelector("#theme-button")?.setAttribute("aria-pressed", "true");
     }
   } catch {}
@@ -348,11 +348,11 @@
     applyDensity(!document.body.classList.contains("compact"));
   });
   document.querySelector("#theme-button")?.addEventListener("click", () => {
-    const ice = document.body.dataset.theme !== "ice";
-    if (ice) document.body.dataset.theme = "ice";
+    const graphite = document.body.dataset.theme !== "graphite";
+    if (graphite) document.body.dataset.theme = "graphite";
     else delete document.body.dataset.theme;
-    document.querySelector("#theme-button")?.setAttribute("aria-pressed", String(ice));
-    try { localStorage.setItem(THEME_KEY, ice ? "ice" : "graphite"); } catch {}
+    document.querySelector("#theme-button")?.setAttribute("aria-pressed", String(graphite));
+    try { localStorage.setItem(THEME_KEY, graphite ? "graphite" : "ice"); } catch {}
   });
   searchInput.addEventListener("input", render);
   function clearSearch() {
