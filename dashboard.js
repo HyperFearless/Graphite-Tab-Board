@@ -34,6 +34,7 @@
       untitled: "Adsız sekme", previewAlt: "Sekme önizlemesi", localPage: "yerel sayfa",
       favAdd: "Favoriye ekle", favRemove: "Favoriden çıkar",
       wake: "Uyandır", sleep: "Uyut", wakeTitle: "Sekmeyi uyandır", sleepTitle: "Sekmeyi uyut",
+      reload: "Yenile", reloadTitle: "Sekmeyi yenile", close: "Kapat", closeTitle: "Sekmeyi kapat",
       unpin: "Kaldır", pin: "Sabitle", unpinTitle: "Sabitlemeyi kaldır", pinTitle: "Sekmeyi sabitle",
       thisTab: "bu sekme",
       closeConfirm: (title) => `“${title}” kapatılsın mı? Bu işlem sekmeyi panodan kaldırır.`,
@@ -66,6 +67,7 @@
       untitled: "Untitled tab", previewAlt: "Tab preview", localPage: "local page",
       favAdd: "Add to favorites", favRemove: "Remove from favorites",
       wake: "Wake", sleep: "Sleep", wakeTitle: "Wake tab", sleepTitle: "Sleep tab",
+      reload: "Reload", reloadTitle: "Reload tab", close: "Close", closeTitle: "Close tab",
       unpin: "Unpin", pin: "Pin", unpinTitle: "Unpin tab", pinTitle: "Pin tab",
       thisTab: "this tab",
       closeConfirm: (title) => `Close “${title}”? This removes the tab from the board.`,
@@ -176,6 +178,14 @@
   function buildCard(record) {
     const card = template.content.firstElementChild.cloneNode(true);
     card.dataset.id = record.id;
+    const favicon = card.querySelector(".card-favicon");
+    if (favicon) {
+      favicon.addEventListener("error", () => {
+        favicon._src = "";
+        favicon.removeAttribute("src");
+        favicon.hidden = true;
+      });
+    }
     const image = card.querySelector(".card-image");
     image.addEventListener("error", () => {
       const next = (card._fallbacks || []).shift();
@@ -197,6 +207,16 @@
 
   function syncCard(card, record) {
     card.querySelector(".card-domain").textContent = hostFor(record.url);
+    const favicon = card.querySelector(".card-favicon");
+    if (favicon) {
+      const favIconUrl = record.favIconUrl || "";
+      if (favIconUrl !== favicon._src) {
+        favicon._src = favIconUrl;
+        if (favIconUrl) favicon.src = favIconUrl;
+        else favicon.removeAttribute("src");
+      }
+      favicon.hidden = !favIconUrl;
+    }
     card.querySelector(".card-title").textContent = escapeText(record.title || record.url || t("untitled"));
     card.querySelector(".card-url").textContent = escapeText(record.url);
     const image = card.querySelector(".card-image");
@@ -220,6 +240,7 @@
     favorite.textContent = record.favorite ? "★" : "☆";
     favorite.classList.toggle("active", Boolean(record.favorite));
     favorite.setAttribute("aria-label", record.favorite ? t("favRemove") : t("favAdd"));
+    favorite.title = record.favorite ? t("favRemove") : t("favAdd");
     const discard = card.querySelector('[data-action="discard"]');
     discard.textContent = sleeping ? t("wake") : t("sleep");
     discard.title = sleeping ? t("wakeTitle") : t("sleepTitle");
@@ -228,6 +249,10 @@
     pin.textContent = record.pinned ? t("unpin") : t("pin");
     pin.title = record.pinned ? t("unpinTitle") : t("pinTitle");
     pin.classList.toggle("pinned", Boolean(record.pinned));
+    card.querySelector('[data-action="reload"]').textContent = t("reload");
+    card.querySelector('[data-action="reload"]').title = t("reloadTitle");
+    card.querySelector('[data-action="close"]').textContent = t("close");
+    card.querySelector('[data-action="close"]').title = t("closeTitle");
   }
 
   function render() {

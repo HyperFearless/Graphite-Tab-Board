@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Graphite Sekme Panosu</title>
     <link rel="stylesheet" href="dashboard.css">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
   </head>
   <body>
     <main class="app-shell">
@@ -78,7 +80,10 @@
           <button class="favorite-button" data-action="favorite" type="button" aria-label="Favoriyi değiştir">☆</button>
         </div>
         <div class="card-body">
-          <p class="card-domain"></p>
+          <div class="card-domain-row">
+            <img class="card-favicon" alt="" loading="lazy">
+            <p class="card-domain"></p>
+          </div>
           <h2 class="card-title"></h2>
           <p class="card-url"></p>
           <div class="card-actions">

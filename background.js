@@ -427,6 +427,7 @@ async function onMessage(request = {}, sender = {}) {
     const nextUrl = tabUrl(tab);
     if (nextUrl && nextUrl !== record.url) { record.url = nextUrl; changed = true; }
     if (tab.favIconUrl && tab.favIconUrl !== record.favIconUrl) { record.favIconUrl = tab.favIconUrl; changed = true; }
+    if (metadata.favIconUrl && metadata.favIconUrl !== record.favIconUrl) { record.favIconUrl = metadata.favIconUrl; changed = true; }
     if (!changed) return { ok: true };
     scheduleSave();
     return { ok: true };
