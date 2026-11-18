@@ -41,6 +41,17 @@
       actionFailed: "İşlem tamamlanamadı.",
       loadFailed: (msg) => `Sekmeler yüklenemedi: ${msg}`,
       unknownError: "bilinmeyen hata",
+      errors: {
+        RECORD_NOT_FOUND: "Sekme kaydı bulunamadı.",
+        OPEN_FAILED: "Sekme açılamadı.",
+        FOCUS_FAILED: "Sekmeye geçilemedi.",
+        ACTIVE_DISCARD: "Etkin sekme uyutulamaz.",
+        DISCARD_FAILED: "Sekme uyutulamadı.",
+        NOT_OPEN: "Sekme açık değil.",
+        RELOAD_FAILED: "Sekme yenilenemedi.",
+        PIN_FAILED: "Sekme sabitlenemedi.",
+        CLOSE_FAILED: "Sekme kapatılamadı."
+      },
       footerA: "Normal sekmeler yerel olarak kaydedilir.",
       footerB: "Onayınız olmadan hiçbir sekme kapanmaz.",
       themeTitle: "Temayı değiştir", densityTitle: "Yoğun görünüm", refreshTitle: "Panoyu yenile",
@@ -74,6 +85,17 @@
       actionFailed: "Action could not be completed.",
       loadFailed: (msg) => `Tabs could not be loaded: ${msg}`,
       unknownError: "unknown error",
+      errors: {
+        RECORD_NOT_FOUND: "Tab record not found.",
+        OPEN_FAILED: "Tab could not be opened.",
+        FOCUS_FAILED: "Tab could not be focused.",
+        ACTIVE_DISCARD: "The active tab cannot be put to sleep.",
+        DISCARD_FAILED: "Tab could not be put to sleep.",
+        NOT_OPEN: "Tab is not open.",
+        RELOAD_FAILED: "Tab could not be reloaded.",
+        PIN_FAILED: "Tab could not be pinned.",
+        CLOSE_FAILED: "Tab could not be closed."
+      },
       footerA: "Normal tabs are stored locally.",
       footerB: "No tab closes without your confirmation.",
       themeTitle: "Change theme", densityTitle: "Dense view", refreshTitle: "Refresh board",
@@ -157,8 +179,6 @@
     } catch (error) { return Promise.reject(error); }
   }
 
-  function escapeText(value) { return String(value || ""); }
-
   function hostFor(url) {
     try { return new URL(url).hostname.replace(/^www\./, "") || t("localPage"); } catch { return t("localPage"); }
   }
@@ -201,6 +221,13 @@
       if (event.target.closest("button[data-action]")) return;
       actionFor(card, "focus");
     });
+    // Cards are focusable; Enter/Space on the card itself opens the tab, the
+    // same as a click. Keys on the inner buttons keep their own behavior.
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      actionFor(card, "focus");
+    });
     syncCard(card, record);
     return card;
   }
@@ -217,8 +244,11 @@
       }
       favicon.hidden = !favIconUrl;
     }
-    card.querySelector(".card-title").textContent = escapeText(record.title || record.url || t("untitled"));
-    card.querySelector(".card-url").textContent = escapeText(record.url);
+    // textContent never parses markup, so titles/URLs need no escaping.
+    const title = record.title || record.url || t("untitled");
+    card.querySelector(".card-title").textContent = title;
+    card.querySelector(".card-url").textContent = record.url || "";
+    card.setAttribute("aria-label", title);
     const image = card.querySelector(".card-image");
     const imageUrl = imageFor(record);
     if (imageUrl !== card._src) {
@@ -255,6 +285,32 @@
     card.querySelector('[data-action="close"]').title = t("closeTitle");
   }
 
+  // Window rank: focused window first, other open windows next, offline
+  // cards (no window) last.
+  function windowRank(record) {
+    if (!Number.isInteger(record.windowId)) return 2;
+    return record.windowId === currentState.focusedWindowId ? 0 : 1;
+  }
+
+  // A total order (favorites → window rank → window id → tab index →
+  // lastSeen → id). Mixing tab index and lastSeen across windows made the
+  // comparison non-transitive, so cards could jump between renders.
+  function compareRecords(a, b) {
+    if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1;
+    const rankA = windowRank(a);
+    const rankB = windowRank(b);
+    if (rankA !== rankB) return rankA - rankB;
+    if (rankA === 1 && a.windowId !== b.windowId) return a.windowId - b.windowId;
+    if (rankA < 2) {
+      const indexA = Number.isInteger(a.index) ? a.index : Number.MAX_SAFE_INTEGER;
+      const indexB = Number.isInteger(b.index) ? b.index : Number.MAX_SAFE_INTEGER;
+      if (indexA !== indexB) return indexA - indexB;
+    }
+    const seen = (b.lastSeen || 0) - (a.lastSeen || 0);
+    if (seen !== 0) return seen;
+    return String(a.id).localeCompare(String(b.id));
+  }
+
   function render() {
     const allRecords = currentState.records || [];
     const query = normalizeSearch(searchInput.value.trim());
@@ -265,16 +321,7 @@
       const sleeping = isSleeping(record);
       if (activeFilter !== "all" && (activeFilter === "sleeping" ? !sleeping : sleeping)) return false;
       return !query || normalizeSearch(record.title).includes(query) || normalizeSearch(record.url).includes(query);
-    }).sort((a, b) => {
-      if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1;
-      const aFocused = a.windowId === currentState.focusedWindowId;
-      const bFocused = b.windowId === currentState.focusedWindowId;
-      if (aFocused !== bFocused) return aFocused ? -1 : 1;
-      if (a.windowId === b.windowId && Number.isInteger(a.index) && Number.isInteger(b.index) && a.index !== b.index) {
-        return a.index - b.index;
-      }
-      return (b.lastSeen || 0) - (a.lastSeen || 0);
-    });
+    }).sort(compareRecords);
     empty.hidden = records.length !== 0;
     document.querySelector("#tab-count").textContent = allRecords.length;
     document.querySelector("#sleeping-count").textContent = allRecords.filter(isSleeping).length;
@@ -327,7 +374,7 @@
     try {
       const result = await invoke("runtime", "sendMessage", { type: "TAB_ACTION", action, id });
       if (!result?.ok) {
-        statusLine.textContent = result?.error || t("actionFailed");
+        statusLine.textContent = t("errors")[result?.code] || t("actionFailed");
         return;
       }
       await load();

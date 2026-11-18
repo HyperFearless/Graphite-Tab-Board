@@ -1,14 +1,18 @@
-/* Graphite Tab Board - Firefox MV3 background service worker. */
+/* Graphite Tab Board - Firefox MV3 background script (non-persistent event page). */
 const api = globalThis.browser || globalThis.chrome;
 
 const STORAGE_KEY = "state";
+const SESSION_KEY = "bootedSession";
 const STATE_VERSION = 1;
 const records = new Map();
 const suppressedRemovals = new Set();
 const pendingWindowRemovals = new Map();
 const pendingWindowRemovalTimers = new Map();
 const WINDOW_CLOSE_DEBOUNCE_MS = 350;
+const STALE_CHECK_DELAY_MS = 1500;
+const METADATA_REQUEST_DELAY_MS = 1000;
 let bootPromise;
+let staleCheckTimer = null;
 
 function extensionUrl(file = "dashboard.html") {
   return api.runtime.getURL(file);
@@ -46,6 +50,29 @@ function now() {
   return Date.now();
 }
 
+function withoutHash(url) {
+  const value = String(url || "");
+  const index = value.indexOf("#");
+  return index < 0 ? value : value.slice(0, index);
+}
+
+function hostOf(url) {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(String(url || ""));
+  return match ? match[1].toLowerCase() : "";
+}
+
+// Page-supplied image URLs end up in <img src> on the board; only allow
+// ordinary web images and inline image data.
+function safeImageUrl(url) {
+  const value = typeof url === "string" ? url.trim() : "";
+  return /^(https?:\/\/|data:image\/)/i.test(value) ? value : "";
+}
+
+// `code` is stable and localized by the board; `error` is for debugging.
+function fail(code, error) {
+  return { ok: false, code, error };
+}
+
 function asRecord(tab, previous = {}, touch = false) {
   const url = tabUrl(tab) || previous.url || "about:blank";
   return {
@@ -57,7 +84,6 @@ function asRecord(tab, previous = {}, touch = false) {
     favIconUrl: tab?.favIconUrl || previous.favIconUrl || "",
     imageUrl: previous.imageUrl || "",
     cachedImageUrl: previous.cachedImageUrl || previous.imageUrl || "",
-    metadata: previous.metadata || {},
     pinned: Boolean(tab?.pinned ?? previous.pinned),
     favorite: Boolean(previous.favorite),
     discarded: Boolean(tab?.discarded ?? previous.discarded),
@@ -68,6 +94,30 @@ function asRecord(tab, previous = {}, touch = false) {
     // Preserving it on noisy updates avoids write + resort churn.
     lastSeen: touch ? now() : (previous.lastSeen ?? now())
   };
+}
+
+// A record whose URL just changed must not keep the previous page's preview:
+// another document drops the images, another host also drops the favicon.
+function resetPageData(record, previousUrl, tab) {
+  if (withoutHash(previousUrl) !== withoutHash(record.url)) {
+    record.imageUrl = "";
+    record.cachedImageUrl = "";
+  }
+  if (hostOf(previousUrl) !== hostOf(record.url)) {
+    record.favIconUrl = tab?.favIconUrl || "";
+  }
+}
+
+// In-page (history API) navigations do not reload the content script, so ask
+// it for fresh metadata once the page had a moment to update its tags.
+function requestMetadata(tabId) {
+  setTimeout(() => {
+    try {
+      api.tabs.sendMessage?.(tabId, { type: "REQUEST_METADATA" })?.catch?.(() => {});
+    } catch {
+      // No content script in this tab (restricted page); nothing to refresh.
+    }
+  }, METADATA_REQUEST_DELAY_MS);
 }
 
 const SAVE_DEBOUNCE_MS = 250;
@@ -110,8 +160,6 @@ function notifyStateChanged() {
   api.runtime.sendMessage({ type: "STATE_UPDATED" }).catch?.(() => {});
 }
 
-
-
 function findRecordByTabId(tabId) {
   for (const record of records.values()) {
     if (record.tabId === tabId) return record;
@@ -124,18 +172,24 @@ async function loadState() {
   if (savedState?.records && Array.isArray(savedState.records)) {
     for (const savedRecord of savedState.records) {
       if (!savedRecord?.id || savedRecord.private || isDashboardUrl(savedRecord.url)) continue;
-      const { private: _private, ...record } = savedRecord;
+      // `private` is a legacy flag; `metadata` held page descriptions, which
+      // are no longer collected, so older copies are dropped here.
+      const { private: _private, metadata: _metadata, ...record } = savedRecord;
       records.set(record.id, { ...record, tabId: record.tabId ?? null });
     }
   }
 }
 
-async function queryTabs(query = {}) {
+async function queryTabsOrNull(query = {}) {
   try {
     return await api.tabs.query(query);
   } catch {
-    return [];
+    return null;
   }
+}
+
+async function queryTabs(query = {}) {
+  return (await queryTabsOrNull(query)) || [];
 }
 
 async function queryNormalWindows() {
@@ -202,8 +256,28 @@ function bufferWindowRemoval(record, windowId) {
   pendingWindowRemovalTimers.set(windowKey, timer);
 }
 
-async function reconcileNormalTabs() {
-  const tabs = (await queryTabs({})).filter(isPersistableTab);
+// storage.session is cleared when the browser restarts or the extension is
+// (re)loaded, but survives the event page being suspended. An empty session
+// therefore means "fresh start", a set flag means "woken from suspension".
+async function isFreshSession() {
+  const session = api.storage?.session;
+  if (!session?.get || !session?.set) return true;
+  try {
+    const stored = await session.get(SESSION_KEY);
+    if (stored?.[SESSION_KEY]) return false;
+    await session.set({ [SESSION_KEY]: true });
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+async function reconcileNormalTabs({ fresh }) {
+  const allTabs = await queryTabsOrNull({});
+  // Without a reliable tab list every record would look missing; keep the
+  // saved state untouched rather than marking or reopening everything.
+  if (!allTabs) return false;
+  const tabs = allTabs.filter(isPersistableTab);
   const byId = new Map(tabs.map((tab) => [tab.id, tab]));
   const matched = new Set();
   const unmatched = [];
@@ -211,11 +285,17 @@ async function reconcileNormalTabs() {
   // Reserve live IDs before URL matching, so an offline card cannot take
   // the tab that belongs to another saved card with the same URL.
   for (const record of records.values()) {
-    const tab = byId.get(record.tabId);
-    if (tab && !matched.has(tab.id)) {
+    const tab = Number.isInteger(record.tabId) ? byId.get(record.tabId) : undefined;
+    // Tab IDs restart with every browser session, so on a fresh start a
+    // saved ID only counts when the URL agrees too.
+    const idMatches = tab && !matched.has(tab.id) && (!fresh || tabUrl(tab) === record.url);
+    if (idMatches) {
       matched.add(tab.id);
-      const next = asRecord(tab, record);
-      records.set(record.id, next);
+      records.set(record.id, asRecord(tab, record));
+    } else if (!fresh && Number.isInteger(record.tabId) && !tab) {
+      // Woken from suspension: the tab was most likely closed while the
+      // page slept and its onRemoved event is queued right behind us.
+      // Leave the record for that handler; the stale check catches the rest.
     } else {
       unmatched.push(record);
     }
@@ -233,8 +313,7 @@ async function reconcileNormalTabs() {
     const tab = byUrl.get(record.url)?.pop();
     if (tab) {
       matched.add(tab.id);
-      const next = asRecord(tab, record);
-      records.set(record.id, next);
+      records.set(record.id, asRecord(tab, record));
     } else {
       // Saved cards without a live match are restored individually.
       record.tabId = null;
@@ -251,23 +330,39 @@ async function reconcileNormalTabs() {
 
   await persist();
   notifyStateChanged();
+  return true;
+}
+
+// Restored tabs are created unloaded so a large board does not load every
+// page at once. Firefox refuses discarded pinned tabs, so those load normally.
+async function createRestoredTab(record, windowId) {
+  const base = {
+    url: record.url,
+    active: false,
+    pinned: Boolean(record.pinned),
+    ...(Number.isInteger(windowId) ? { windowId } : {})
+  };
+  if (!record.pinned) {
+    try {
+      return await api.tabs.create({ ...base, discarded: true, ...(record.title ? { title: record.title } : {}) });
+    } catch {
+      // Some URLs cannot be created discarded; fall back to a normal tab.
+    }
+  }
+  return api.tabs.create(base);
 }
 
 async function restoreMissingRecords() {
-  const tabs = await queryTabs({});
+  const tabs = await queryTabsOrNull({});
+  if (!tabs) return;
+  const liveIds = new Set(tabs.filter(isPersistableTab).map((tab) => tab.id));
   const candidateWindow = tabs.find((tab) => !tab.incognito)?.windowId;
-  for (const record of records.values()) {
-    if (record.tabId !== null && tabs.some((tab) => tab.id === record.tabId && isPersistableTab(tab))) continue;
+  for (const record of [...records.values()]) {
+    if (Number.isInteger(record.tabId) && liveIds.has(record.tabId)) continue;
     if (!record.url || isDashboardUrl(record.url) || record.url.startsWith("about:")) continue;
     try {
-      const created = await api.tabs.create({
-        url: record.url,
-        active: false,
-        pinned: Boolean(record.pinned),
-        ...(Number.isInteger(candidateWindow) ? { windowId: candidateWindow } : {})
-      });
-      const next = asRecord(created, record, true);
-      records.set(record.id, next);
+      const created = await createRestoredTab(record, candidateWindow);
+      records.set(record.id, asRecord(created, record, true));
     } catch {
       // Restricted URLs may not be restored by Firefox; keep their saved card.
       record.tabId = null;
@@ -275,22 +370,54 @@ async function restoreMissingRecords() {
     }
   }
   await persist();
+  notifyStateChanged();
+}
+
+async function markStaleRecordsOffline() {
+  const tabs = await queryTabsOrNull({});
+  if (!tabs || tabs.length === 0) return;
+  const liveIds = new Set(tabs.filter(isPersistableTab).map((tab) => tab.id));
+  let changed = false;
+  for (const record of records.values()) {
+    if (!Number.isInteger(record.tabId) || liveIds.has(record.tabId)) continue;
+    record.tabId = null;
+    record.windowId = null;
+    record.discarded = true;
+    changed = true;
+  }
+  if (!changed) return;
+  await persist();
+  notifyStateChanged();
+}
+
+function scheduleStaleCheck() {
+  if (staleCheckTimer) clearTimeout(staleCheckTimer);
+  staleCheckTimer = setTimeout(() => {
+    staleCheckTimer = null;
+    markStaleRecordsOffline().catch((error) => console.error("Stale record check failed", error));
+  }, STALE_CHECK_DELAY_MS);
 }
 
 async function boot() {
+  const fresh = await isFreshSession();
   await loadState();
-  await reconcileNormalTabs();
-  await restoreMissingRecords();
+  const reconciled = await reconcileNormalTabs({ fresh });
+  if (!reconciled) return true;
+  // Only a real start restores missing tabs. Waking from suspension must
+  // never reopen a tab the user closed while the event page was asleep.
+  if (fresh) await restoreMissingRecords();
+  else scheduleStaleCheck();
   return true;
 }
 
+// One boot per load of this script. Startup/install events reuse it instead
+// of starting a second, concurrent boot that would restore tabs twice.
 function ensureBoot() {
   if (!bootPromise) bootPromise = boot().catch((error) => {
     console.error("Graphite Tab Board startup failed", error);
   });
   return bootPromise;
 }
-
 
 async function stateForRequest() {
   if (saveTimer) await flushSave();
@@ -336,12 +463,12 @@ async function createOrGetTab(record) {
 
 async function focusTab(record) {
   const tab = await createOrGetTab(record);
-  if (!tab) return { ok: false, error: "Tab could not be opened" };
+  if (!tab) return fail("OPEN_FAILED", "Tab could not be opened");
   try {
     await api.tabs.update(tab.id, { active: true });
     if (Number.isInteger(tab.windowId)) await api.windows.update(tab.windowId, { focused: true });
   } catch {
-    return { ok: false, error: "Tab could not be focused" };
+    return fail("FOCUS_FAILED", "Tab could not be focused");
   }
   return { ok: true };
 }
@@ -349,7 +476,7 @@ async function focusTab(record) {
 async function handleTabAction(request) {
   const { action, id } = request;
   const record = records.get(id);
-  if (!record) return { ok: false, error: "Tab record not found" };
+  if (!record) return fail("RECORD_NOT_FOUND", "Tab record not found");
 
   if (action === "focus") return focusTab(record);
 
@@ -359,40 +486,47 @@ async function handleTabAction(request) {
     if (record.discarded || !live) {
       const result = await focusTab(record);
       if (result.ok) {
-        record.discarded = false;
+        // focusTab replaces the record object when it had to reopen the tab.
+        const current = records.get(id);
+        if (current) current.discarded = false;
         await persist();
         notifyStateChanged();
       }
       return result;
     }
-    if (!live) return { ok: false, error: "Tab is not open" };
-    if (live.active) return { ok: false, error: "The active tab cannot be discarded" };
+    if (live.active) return fail("ACTIVE_DISCARD", "The active tab cannot be discarded");
     try {
       await api.tabs.discard(live.id);
       record.discarded = true;
     } catch (error) {
-      return { ok: false, error: error?.message || "Tab could not be discarded" };
+      return fail("DISCARD_FAILED", error?.message || "Tab could not be discarded");
     }
   } else if (action === "reload") {
     const target = live || await createOrGetTab(record);
-    if (!target) return { ok: false, error: "Tab is not open" };
-    try { await api.tabs.reload(target.id); } catch { return { ok: false, error: "Tab could not be reloaded" }; }
+    if (!target) return fail("NOT_OPEN", "Tab is not open");
+    try { await api.tabs.reload(target.id); } catch { return fail("RELOAD_FAILED", "Tab could not be reloaded"); }
   } else if (action === "pin") {
-    if (!live) return { ok: false, error: "Tab is not open" };
+    if (!live) return fail("NOT_OPEN", "Tab is not open");
     try {
       const updated = await api.tabs.update(live.id, { pinned: !live.pinned });
       record.pinned = Boolean(updated?.pinned ?? !live.pinned);
-    } catch { return { ok: false, error: "Tab could not be pinned" }; }
+    } catch { return fail("PIN_FAILED", "Tab could not be pinned"); }
   } else if (action === "favorite") {
     record.favorite = !record.favorite;
   } else if (action === "close") {
     if (live) {
       suppressedRemovals.add(live.id);
-      try { await api.tabs.remove(live.id); } catch { suppressedRemovals.delete(live.id); }
+      try {
+        await api.tabs.remove(live.id);
+      } catch {
+        suppressedRemovals.delete(live.id);
+        // Keep the card only when the tab really survived the failed close.
+        if (await getTab(live.id)) return fail("CLOSE_FAILED", "Tab could not be closed");
+      }
     }
     records.delete(record.id);
   } else {
-    return { ok: false, error: "Unknown tab action" };
+    return fail("UNKNOWN_ACTION", "Unknown tab action");
   }
 
   await persist();
@@ -400,39 +534,62 @@ async function handleTabAction(request) {
   return { ok: true };
 }
 
+async function handlePageMetadata(request, sender) {
+  const tab = sender.tab;
+  if (!Number.isInteger(tab?.id)) return { ok: false };
+  if (!isPersistableTab(tab)) return { ok: true };
+  let record = findRecordByTabId(tab.id);
+  if (!record) {
+    record = asRecord(tab, {}, true);
+    records.set(record.id, record);
+  }
+  const metadata = request.metadata || {};
+  let changed = false;
+  const nextUrl = tabUrl(tab);
+  if (nextUrl && nextUrl !== record.url) {
+    const previousUrl = record.url;
+    record.url = nextUrl;
+    resetPageData(record, previousUrl, tab);
+    changed = true;
+  }
+  if (metadata.title && metadata.title !== record.title) { record.title = metadata.title; changed = true; }
+  const imageUrl = safeImageUrl(metadata.imageUrl);
+  if (imageUrl && imageUrl !== record.imageUrl) {
+    record.cachedImageUrl = record.imageUrl || record.cachedImageUrl || "";
+    record.imageUrl = imageUrl;
+    changed = true;
+  }
+  // Firefox's own favicon wins; the page-declared icon only fills a gap.
+  // Letting both overwrite each other made every tab update flip it back.
+  const favIconUrl = tab.favIconUrl || (record.favIconUrl ? "" : safeImageUrl(metadata.favIconUrl));
+  if (favIconUrl && favIconUrl !== record.favIconUrl) { record.favIconUrl = favIconUrl; changed = true; }
+  if (changed) scheduleSave();
+  return { ok: true };
+}
+
 async function onMessage(request = {}, sender = {}) {
-  if (sender.tab?.incognito) return { ok: false, error: "Private browsing is not supported" };
+  if (sender.tab?.incognito) return fail("PRIVATE", "Private browsing is not supported");
   await ensureBoot();
   if (request.type === "GET_STATE") return stateForRequest();
   if (request.type === "TAB_ACTION") return handleTabAction(request);
-  if (request.type === "PAGE_METADATA") {
-    const tabId = sender.tab?.id;
-    if (!Number.isInteger(tabId)) return { ok: false };
-    const tab = sender.tab || await getTab(tabId);
-    if (!isPersistableTab(tab)) return { ok: true };
-    let record = findRecordByTabId(tabId);
-    if (!record) {
-      record = asRecord(tab, {}, true);
-      records.set(record.id, record);
-    }
-    const metadata = request.metadata || {};
-    let changed = false;
-    if (metadata.title && metadata.title !== record.title) { record.title = metadata.title; changed = true; }
-    if (metadata.description && metadata.description !== record.metadata.description) { record.metadata.description = metadata.description; changed = true; }
-    if (metadata.imageUrl && metadata.imageUrl !== record.imageUrl) {
-      record.cachedImageUrl = record.imageUrl || record.cachedImageUrl || "";
-      record.imageUrl = metadata.imageUrl;
-      changed = true;
-    }
-    const nextUrl = tabUrl(tab);
-    if (nextUrl && nextUrl !== record.url) { record.url = nextUrl; changed = true; }
-    if (tab.favIconUrl && tab.favIconUrl !== record.favIconUrl) { record.favIconUrl = tab.favIconUrl; changed = true; }
-    if (metadata.favIconUrl && metadata.favIconUrl !== record.favIconUrl) { record.favIconUrl = metadata.favIconUrl; changed = true; }
-    if (!changed) return { ok: true };
-    scheduleSave();
-    return { ok: true };
+  if (request.type === "PAGE_METADATA") return handlePageMetadata(request, sender);
+  return fail("UNKNOWN_REQUEST", "Unknown request");
+}
+
+async function refreshWindowRecords(windowId) {
+  const tabs = await queryTabs({ windowId });
+  let changedNormal = false;
+  for (const tab of tabs) {
+    if (tab.incognito || isDashboardTab(tab)) continue;
+    const record = findRecordByTabId(tab.id);
+    if (!record) continue;
+    const preview = asRecord(tab, record, false);
+    if (sameMeaningful(record, preview)) continue;
+    records.set(record.id, asRecord(tab, record, true));
+    changedNormal = true;
   }
-  return { ok: false, error: "Unknown request" };
+  if (changedNormal) scheduleSave();
+  else notifyStateChanged();
 }
 
 api.runtime.onMessage.addListener(onMessage);
@@ -483,45 +640,25 @@ api.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   } else {
     const next = asRecord(tab, record, false);
     if (changeInfo.discarded !== undefined) next.discarded = Boolean(changeInfo.discarded);
+    if (next.url !== record.url) {
+      resetPageData(next, record.url, tab);
+      if (withoutHash(next.url) !== withoutHash(record.url)) requestMetadata(tabId);
+    }
     if (sameMeaningful(record, next)) return;
     records.set(record.id, next);
   }
   scheduleSave();
 });
 
-api.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+api.tabs.onActivated.addListener(async ({ windowId }) => {
   await ensureBoot();
-  const tabs = await queryTabs({ windowId });
-  let changedNormal = false;
-  for (const tab of tabs) {
-    if (tab.incognito || isDashboardTab(tab)) continue;
-    const record = findRecordByTabId(tab.id);
-    if (!record) continue;
-    const preview = asRecord(tab, record, false);
-    if (sameMeaningful(record, preview)) continue;
-    records.set(record.id, asRecord(tab, record, true));
-    changedNormal = true;
-  }
-  if (changedNormal) scheduleSave();
-  else notifyStateChanged();
+  await refreshWindowRecords(windowId);
 });
 
 api.windows.onFocusChanged?.addListener(async (windowId) => {
   if (!Number.isInteger(windowId) || windowId < 0) return;
   await ensureBoot();
-  const tabs = await queryTabs({ windowId });
-  let changedNormal = false;
-  for (const tab of tabs) {
-    if (tab.incognito || isDashboardTab(tab)) continue;
-    const record = findRecordByTabId(tab.id);
-    if (!record) continue;
-    const preview = asRecord(tab, record, false);
-    if (sameMeaningful(record, preview)) continue;
-    records.set(record.id, asRecord(tab, record, true));
-    changedNormal = true;
-  }
-  if (changedNormal) scheduleSave();
-  else notifyStateChanged();
+  await refreshWindowRecords(windowId);
 });
 
 api.tabs.onRemoved.addListener(async (tabId, removeInfo = {}) => {
@@ -547,14 +684,11 @@ api.tabs.onRemoved.addListener(async (tabId, removeInfo = {}) => {
   notifyStateChanged();
 });
 
-api.runtime.onStartup?.addListener(() => {
-  bootPromise = undefined;
-  ensureBoot();
-});
+// The top-level boot below already runs on every load; these listeners only
+// make sure Firefox wakes the event page and then wait for that same boot.
+api.runtime.onStartup?.addListener(() => ensureBoot());
+api.runtime.onInstalled?.addListener(() => ensureBoot());
 
-api.runtime.onInstalled?.addListener(() => {
-  ensureBoot();
-});
-
-// Warm the worker when Firefox starts the extension in a new profile.
+// Every load of this event page (browser start, install/update, waking from
+// suspension) boots once; boot() tells a fresh start apart from a wake.
 ensureBoot();

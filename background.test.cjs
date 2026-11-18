@@ -7,14 +7,17 @@ const source = readFileSync(join(__dirname, "background.js"), "utf8");
 const url = "https://example.org/shared";
 const tab = (id, extra = {}) => ({ id, windowId: 10, url, title: "Example", incognito: false, pinned: false, active: false, index: id, ...extra });
 const record = (id, extra = {}) => ({ id, tabId: null, windowId: null, url, pinned: false, ...extra });
+// A set session flag means the event page is waking up, not starting fresh.
+const WAKE = { session: { bootedSession: true } };
 
-async function start(saved = [], initialTabs = [], initialWindows = [{ id: 10, type: "normal", incognito: false }]) {
+async function start(saved = [], initialTabs = [], initialWindows = [{ id: 10, type: "normal", incognito: false }], options = {}) {
   const listeners = {};
   const event = (name) => ({ addListener(fn) { listeners[name] = fn; } });
   const tabs = initialTabs.map((value) => ({ ...value }));
   const created = [];
   const timers = new Map();
   let storage = { state: { records: saved } };
+  const session = options.session ? { ...options.session } : null;
   let windows = initialWindows;
   let nextId = Math.max(100, ...tabs.map((value) => value.id)) + 1;
   const api = {
@@ -23,7 +26,10 @@ async function start(saved = [], initialTabs = [], initialWindows = [{ id: 10, t
       sendMessage: async () => {},
       onMessage: event("message"), onStartup: event("startup"), onInstalled: event("installed")
     },
-    storage: { local: { get: async () => structuredClone(storage), set: async (value) => { storage = structuredClone(value); } } },
+    storage: {
+      local: { get: async () => structuredClone(storage), set: async (value) => { storage = structuredClone(value); } },
+      ...(session ? { session: { get: async () => ({ ...session }), set: async (value) => { Object.assign(session, value); } } } : {})
+    },
     tabs: {
       query: async (query = {}) => tabs.filter((value) => query.windowId === undefined || value.windowId === query.windowId),
       get: async (id) => { const value = tabs.find((value) => value.id === id); if (!value) throw new Error("Missing tab"); return value; },
@@ -36,15 +42,21 @@ async function start(saved = [], initialTabs = [], initialWindows = [{ id: 10, t
   };
   const context = vm.createContext({ browser: api, console: { error: (...args) => { throw new Error(args.join(" ")); } }, setTimeout: (fn) => { const id = timers.size + 1; timers.set(id, fn); return id; }, clearTimeout: (id) => timers.delete(id) });
   vm.runInContext(source, context);
-  await vm.runInContext("ensureBoot()", context);
+  // Firefox fires runtime.onStartup right after the script's own top-level
+  // boot started; run both together so a second, concurrent boot shows up.
+  await Promise.all([vm.runInContext("ensureBoot()", context), listeners.startup()]);
   return {
     tabs, created, listeners,
     state: () => listeners.message({ type: "GET_STATE" }),
     storage: () => storage,
     setWindows: (value) => { windows = value; },
-    flushClose: (windowId) => vm.runInContext(`finalizeWindowRemoval(${windowId})`, context)
+    flushClose: (windowId) => vm.runInContext(`finalizeWindowRemoval(${windowId})`, context),
+    runStaleCheck: () => vm.runInContext("markStaleRecordsOffline()", context)
   };
 }
+
+const metadataFrom = (app, metadata, sender = app.tabs[0]) =>
+  app.listeners.message({ type: "PAGE_METADATA", metadata }, { tab: sender });
 
 test("two live tabs with the same URL remain distinct across reconciliation", async () => {
   const app = await start([], [tab(1), tab(2)]);
@@ -66,7 +78,7 @@ test("live ID matches are reserved before offline URL matches", async () => {
   assert.equal(app.created.length, 1);
 });
 
-test("each missing same-URL record is restored with its own pin state", async () => {
+test("each missing same-URL record is restored once with its own pin state", async () => {
   const app = await start([record("pinned", { pinned: true }), record("plain")]);
   const state = await app.state();
   assert.equal(app.created.length, 2);
@@ -74,8 +86,21 @@ test("each missing same-URL record is restored with its own pin state", async ()
   assert.equal(state.records.find((value) => value.id === "pinned").pinned, true);
   assert.equal(state.records.find((value) => value.id === "plain").pinned, false);
   await app.listeners.startup();
+  await app.listeners.installed();
   await app.state();
   assert.equal(app.created.length, 2);
+});
+
+test("restored tabs open unloaded, except pinned ones", async () => {
+  const app = await start([record("pinned", { pinned: true }), record("plain", { title: "Saved title" })]);
+  const pinned = app.created.find((options) => options.pinned);
+  const plain = app.created.find((options) => !options.pinned);
+  assert.equal(pinned.discarded, undefined);
+  assert.equal(plain.discarded, true);
+  assert.equal(plain.title, "Saved title");
+  assert.equal(plain.active, false);
+  const state = await app.state();
+  assert.equal(state.records.find((value) => value.id === "plain").discarded, true);
 });
 
 test("changed browser IDs match same-URL cards one-to-one without extra tabs", async () => {
@@ -86,6 +111,39 @@ test("changed browser IDs match same-URL cards one-to-one without extra tabs", a
   assert.equal(app.created.length, 0);
 });
 
+test("a fresh start ignores a previous-session tab ID that now belongs to another page", async () => {
+  const pageA = "https://example.org/a";
+  const pageB = "https://example.org/b";
+  const app = await start([record("x", { tabId: 1, url: pageA }), record("y", { tabId: 7, url: pageB })], [tab(1, { url: pageB })]);
+  const state = await app.state();
+  const x = state.records.find((value) => value.id === "x");
+  const y = state.records.find((value) => value.id === "y");
+  assert.equal(y.tabId, 1);
+  assert.equal(x.url, pageA);
+  assert.notEqual(x.tabId, 1);
+  assert.equal(app.created.length, 1);
+  assert.equal(app.created[0].url, pageA);
+});
+
+test("waking from suspension never reopens a tab closed while asleep", async () => {
+  const app = await start([record("gone", { tabId: 1, windowId: 10 })], [], undefined, WAKE);
+  assert.equal(app.created.length, 0);
+  await app.listeners.removed(1, { windowId: 10 });
+  assert.equal((await app.state()).records.length, 0);
+  assert.equal(app.created.length, 0);
+});
+
+test("records left stale after a wake go offline without reopening", async () => {
+  const other = "https://example.org/other";
+  const app = await start([record("stale", { tabId: 1, windowId: 10 })], [tab(5, { url: other })], undefined, WAKE);
+  await app.runStaleCheck();
+  const state = await app.state();
+  const stale = state.records.find((value) => value.id === "stale");
+  assert.equal(stale.tabId, null);
+  assert.equal(stale.discarded, true);
+  assert.equal(app.created.length, 0);
+});
+
 test("manual focus restores a missing pinned tab as pinned", async () => {
   const app = await start([record("pin", { pinned: true })]);
   app.tabs.length = 0;
@@ -93,6 +151,63 @@ test("manual focus restores a missing pinned tab as pinned", async () => {
   assert.equal(result.ok, true);
   assert.equal(app.created.at(-1).pinned, true);
   assert.equal((await app.state()).records[0].pinned, true);
+});
+
+test("Firefox's favicon is not overridden by the page-declared one", async () => {
+  const app = await start([], [tab(1, { favIconUrl: "https://example.org/firefox.png" })]);
+  await metadataFrom(app, { favIconUrl: "https://example.org/favicon.ico" });
+  assert.equal((await app.state()).records[0].favIconUrl, "https://example.org/firefox.png");
+});
+
+test("the page-declared favicon fills in when Firefox has none", async () => {
+  const app = await start([], [tab(1)]);
+  await metadataFrom(app, { favIconUrl: "https://example.org/icon.svg" });
+  assert.equal((await app.state()).records[0].favIconUrl, "https://example.org/icon.svg");
+});
+
+test("navigating to another page drops the previous preview; hash changes keep it", async () => {
+  const app = await start([], [tab(1)]);
+  await metadataFrom(app, { imageUrl: "https://example.org/a.jpg" });
+  const sameDocument = { ...app.tabs[0], url: `${url}#section` };
+  await app.listeners.updated(1, { url: sameDocument.url }, sameDocument);
+  assert.equal((await app.state()).records[0].imageUrl, "https://example.org/a.jpg");
+  const otherPage = { ...app.tabs[0], url: "https://example.org/next" };
+  await app.listeners.updated(1, { url: otherPage.url }, otherPage);
+  const moved = (await app.state()).records[0];
+  assert.equal(moved.imageUrl, "");
+  assert.equal(moved.cachedImageUrl, "");
+});
+
+test("a new host also drops the previous favicon", async () => {
+  const app = await start([], [tab(1)]);
+  await metadataFrom(app, { favIconUrl: "https://example.org/icon.svg" });
+  const otherHost = { ...app.tabs[0], url: "https://other.example/" };
+  await app.listeners.updated(1, { url: otherHost.url }, otherHost);
+  assert.equal((await app.state()).records[0].favIconUrl, "");
+});
+
+test("unsafe preview and favicon URLs from pages are ignored", async () => {
+  const app = await start([], [tab(1)]);
+  await metadataFrom(app, { imageUrl: "javascript:alert(1)", favIconUrl: "file:///etc/passwd" });
+  const saved = (await app.state()).records[0];
+  assert.equal(saved.imageUrl, "");
+  assert.equal(saved.favIconUrl, "");
+});
+
+test("page descriptions are neither collected nor kept from older storage", async () => {
+  const app = await start([record("old", { tabId: 1, metadata: { description: "Old description" } })], [tab(1)]);
+  await metadataFrom(app, { description: "Page description" });
+  const serialized = JSON.stringify(app.storage());
+  assert.equal(serialized.includes("description"), false);
+});
+
+test("failed actions report a stable error code", async () => {
+  const app = await start([record("offline", { url: "about:config" })]);
+  const pin = await app.listeners.message({ type: "TAB_ACTION", action: "pin", id: "offline" });
+  assert.equal(pin.ok, false);
+  assert.equal(pin.code, "NOT_OPEN");
+  const missing = await app.listeners.message({ type: "TAB_ACTION", action: "pin", id: "nope" });
+  assert.equal(missing.code, "RECORD_NOT_FOUND");
 });
 
 test("private tabs and metadata are excluded from state and storage", async () => {

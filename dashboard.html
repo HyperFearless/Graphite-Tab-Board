@@ -54,7 +54,7 @@
           </nav>
       </div>
 
-      <section id="tab-grid" class="tab-grid" aria-live="polite"></section>
+      <section id="tab-grid" class="tab-grid"></section>
       <section id="empty-state" class="empty-state" hidden>
         <div class="empty-orb">◌</div>
         <h2>Panoda sekme yok</h2>
@@ -67,7 +67,7 @@
       </footer>
     </main>
     <template id="tab-card-template">
-      <article class="tab-card">
+      <article class="tab-card" tabindex="0" role="group">
         <div class="card-image-wrap">
           <img class="card-image" alt="" loading="lazy">
           <div class="image-fallback" aria-hidden="true"></div>

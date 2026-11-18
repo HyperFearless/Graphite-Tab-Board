@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Graphite Tab Board",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A dark, persistent tab dashboard for Firefox Desktop.",
   "incognito": "not_allowed",
   "permissions": [
@@ -39,7 +39,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "graphite-tab-board@hyperfearless",
-      "strict_min_version": "109.0",
+      "strict_min_version": "115.0",
       "data_collection_permissions": {
         "required": ["none"]
       }

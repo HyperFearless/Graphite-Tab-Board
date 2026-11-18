@@ -111,6 +111,8 @@ h1 { margin-bottom: 0; font-size: 16px; letter-spacing: -.01em; }
 .tab-card { min-width: 0; overflow: hidden; background: linear-gradient(145deg, var(--card-a), var(--card-b)); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 28px #0005; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .tab-card.sleeping { border-color: #334155; background: linear-gradient(145deg, var(--card-sleep-a), var(--card-sleep-b)); }
 .tab-card:hover { transform: translateY(-2px); border-color: var(--accent-strong); box-shadow: 0 12px 28px #0005, 0 0 0 1px var(--accent-strong), 0 0 22px 6px var(--glow); }
+.tab-card:focus { outline: none; }
+.tab-card:focus-visible { border-color: var(--accent-strong); box-shadow: 0 12px 28px #0005, 0 0 0 2px var(--accent-strong), 0 0 22px 6px var(--glow); }
 .tab-card.sleeping .card-image, .tab-card.sleeping .image-fallback { filter: grayscale(1); opacity: .52; }
 .tab-card.sleeping .card-domain, .tab-card.sleeping .card-title, .tab-card.sleeping .card-url { filter: grayscale(.85); opacity: .58; }
 .card-image-wrap { height: 132px; position: relative; overflow: hidden; background: var(--media-bg); }
